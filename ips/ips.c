@@ -110,7 +110,9 @@ void ips_create_image_processing_task_pool();
 void *ips_thread_process_image_part(void *args);
 
 void ips_set_brightness_and_contrast(ips_task_t *task);
-// TODO: add a Sobel filter function prototype
+void sobel_operation(ips_task_t *task);
+int getGX(ips_raw_image_t *input_image, png_uint_32 x, png_uint_32 y, int channel, unsigned int channels);
+int getGY(ips_raw_image_t *input_image, png_uint_32 x, png_uint_32 y, int channel, unsigned int channels);
 
 GLuint ips_create_texture_from_image(ips_raw_image *image);
 void ips_update_texture_from_image(GLuint texture, ips_raw_image *image);
@@ -249,9 +251,13 @@ void ips_update_image(
 
             pool->last_task = task;
             pool->size++;
+	     
+            pthread_mutex_unlock(&Pool_Task_Mutex);
+
            
         }
     }
+    pthread_cond_broadcast(&Got_Task_Condition);
 }
 
 void ips_set_brightness_and_contrast(ips_task_t *task)
@@ -297,52 +303,55 @@ void ips_set_brightness_and_contrast(ips_task_t *task)
 }
    void sobel_operation(ips_task_t *task)
 {
-    png_uint_32 zh_x, zh_y;
+   png_uint_32 x, y;
     png_bytep source_pixel, destination_pixel;
-    int routekey;
-    
-    ips_raw_image *input_image = task->input_image;
-    ips_raw_image *output_image = task->output_image;
-    
-    float new_image_brightness=
-    ((float *) task->image_processing_parameters)[0];
-   float new_image_contrast =
-    ((float *) task ->image_processing_parameters)[1];
-    unsigned int channels = output_image->channels;
-    
-    for (zh_y = task->row_index_to_process; zh_y < task->last_row_index_to_process; ++zh_y)
+    int channel;
+
+    ips_raw_image_t *input_image =
+        task->input_image;
+    ips_raw_image_t *output_image =
+        task->output_image;
+    float new_image_brightness =
+        ((float *) task->image_processing_parameters)[0];
+    float new_image_contrast =
+        ((float *) task->image_processing_parameters)[1];
+    unsigned int channels =
+        output_image->channels;
+    for (y = task->row_index_to_process; y < task->last_row_index_to_process; ++y)
     {
-        for (zh_x = 0; zh_x < output_image->width; ++zh_x)
+        for (x = 0; x < output_image->width; ++x)
         {
-            source_pixel = &(input_image->rows[zh_y][zh_x * channels]);
-            destination_pixel = &(output_image->rows[zh_y][zh_x * channels]);
-            
-            if(zh_y != 0 && zh_y != output_image->height - 1 && zh_x != 0 && zh_x != output_image->width - 1)
+            source_pixel = &(input_image->rows[y][x * channels]);
+            destination_pixel = &(output_image->rows[y][x * channels]);
+
+            if(y != 0 && y != output_image->height - 1 && x != 0 && x != output_image->width - 1)
             {
                 int gx = 0, gy = 0;
-                for (routekey = 0; routekey < 3; ++routekey)
+                for (channel = 0; channel < 3; ++channel)
                 {
-                    gx += getGX(<#ips_raw_image_t *input_image#>, <#png_uint_32 zx#>, <#png_uint_32 y#>, <#int channel#>, <#unsigned int channels#>);
-                    gy += getGY(<#ips_raw_image_t *input_image#>, <#png_uint_32 x#>, <#png_uint_32 y#>, <#int channel#>, <#unsigned int channels#>);
+                    gx += getGX(input_image, x, y, channel, channels);
+                    gy += getGY(input_image, x, y, channel, channels);
                 }
-                for (routekey = 0; routekey < 3; ++routekey)
+                for (channel = 0; channel < 3; ++channel)
                 {
-                    destination_pixel[routekey] = (int)(sqrt(gx * gx + gy * gy));
+                    destination_pixel[channel] = (int)(sqrt(gx * gx + gy * gy));
                 }
-                
+
             }
             else
             {
-                for (routekey = 0; routekey < 3; ++routekey)
+                for (channel = 0; channel < 3; ++channel)
                 {
-                    destination_pixel[routekey] = 0;
+                    destination_pixel[channel] = 0;
                 }
             }
         }
     }
-    
+
     free(task);
 }
+
+            
 
 int getGX(ips_raw_image_t *input_image, png_uint_32 x, png_uint_32 y, int channel, unsigned int channels)
 {
@@ -374,24 +383,23 @@ void *ips_thread_process_image_part(void *args)
     ips_task_t *task;
     pthread_mutex_lock(&Pool_Task_Mutex);
     pthread_cond_wait(
-                      &Got_Task_Condition,
-                      &Pool_Task_Mutex
-                      );
+                &Got_Task_Condition,
+                &Pool_Task_Mutex
+            );
     pthread_mutex_unlock(&Pool_Task_Mutex);
+
 
     while (pool->size != 0) {
         pthread_mutex_lock(&Pool_Task_Mutex);
 
         if (pool->size > 0) {
-            // Get a new task
-
             task = pool->first_task;
             pool->first_task = task->next_task;
             pool->size--;
             if (!pool->size) {
                 pool->last_task = NULL;
             }
-           pthread_mutex_unlock(&Pool_Task_Mutex);
+            pthread_mutex_unlock(&Pool_Task_Mutex);
             task->image_processing_function(task);
         }
     }
