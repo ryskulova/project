@@ -311,10 +311,7 @@ void ips_set_brightness_and_contrast(ips_task_t *task)
         task->input_image;
     ips_raw_image_t *output_image =
         task->output_image;
-    float new_image_brightness =
-        ((float *) task->image_processing_parameters)[0];
-    float new_image_contrast =
-        ((float *) task->image_processing_parameters)[1];
+   
     unsigned int channels =
         output_image->channels;
     for (y = task->row_index_to_process; y < task->last_row_index_to_process; ++y)
